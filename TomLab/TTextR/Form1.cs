@@ -26,8 +26,8 @@ namespace TTextR
         private bool bReplace=false;
         private Form2 fm = null;
         delegate void  ListMessage(string dd);
-        ListMessage lMsg =null;
-        ListMessage aMsg = null;
+        private ListMessage lMsg =null;
+        private ListMessage aMsg = null;
         private void Form1_Load(object sender, EventArgs e)
         {
             lMsg = new ListMessage(OverMessage);
