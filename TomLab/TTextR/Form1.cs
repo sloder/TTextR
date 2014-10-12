@@ -22,16 +22,19 @@ namespace TTextR
         private bool bReContent = false;
         private string strContent = "";
         private int fileCount = 0;
-        private string ftext = "",rtext="";
-        private bool bReplace=false;
+        private string ftext = "", rtext = "";
+        private bool bReplace = false;
         private Form2 fm = null;
-        delegate void  ListMessage(string dd);
-        private ListMessage lMsg =null;
+        delegate void ListMessage(string dd);
+        private ListMessage lMsg = null;
         private ListMessage aMsg = null;
+        private ListMessage bMsg = null;
+        private static object oolock = new object();
         private void Form1_Load(object sender, EventArgs e)
         {
             lMsg = new ListMessage(OverMessage);
             aMsg = new ListMessage(AppendMessage);
+            bMsg = new ListMessage(AlertMessage);
         }
         private void btSelect_Click(object sender, EventArgs e)
         {
@@ -41,25 +44,25 @@ namespace TTextR
                 dr = fbdFloder.ShowDialog(this);
                 if (dr == DialogResult.OK)
                 {
-                    lbFilePaths.Text= fbdFloder.SelectedPath;
+                    lbFilePaths.Text = fbdFloder.SelectedPath;
                     bFolder = true;
                 }
-                
+
             }
             else
             {
                 dr = opfPath.ShowDialog(this);
                 if (dr == DialogResult.OK)
                 {
-                    string fname=string.Join(",",opfPath.FileNames);
+                    string fname = string.Join(",", opfPath.FileNames);
                     lbFilePaths.Text = fname;
                     bFolder = false;
                 }
             }
-           
-            
+
+
         }
-        private  void OverMessage(string data)
+        private void OverMessage(string data)
         {
             this.lbFileNum.Text = fileCount.ToString();
             pbWait.Visible = false;
@@ -68,6 +71,10 @@ namespace TTextR
         {
             this.tbMessage.Text += "\r\n" + data;
             this.lbFileNum.Text = fileCount.ToString();
+        }
+        private void AlertMessage(string data)
+        {
+            this.tbMessage.Text += "\r\n" + data;
         }
         //查询替换主方法
         private void FileOperate()
@@ -100,7 +107,7 @@ namespace TTextR
                 {
                     DirectoryInfo diA = new DirectoryInfo(fpath);
                     if (extNames == "")
-                    {
+                    {                        
                         arrFI = diA.GetFiles("*.*", SearchOption.AllDirectories);
                         th = new Thread(new ParameterizedThreadStart(FindFile));
                         th.Start(arrFI);
@@ -110,6 +117,7 @@ namespace TTextR
                         string[] extNameArr = extNames.Split(',');
                         for (int i = 0; i < extNameArr.Length; i++)
                         {
+                            pbWait.Visible = true;
                             arrFI = diA.GetFiles(extNameArr[i], SearchOption.AllDirectories);
                             th = new Thread(new ParameterizedThreadStart(FindFile));
                             th.Start(arrFI);
@@ -140,35 +148,36 @@ namespace TTextR
         /// <param name="fs"></param>
         /// <returns></returns>
         public Encoding GetFileEncodeType(FileStream fs)
-        {            
+        {
             System.IO.BinaryReader br = new System.IO.BinaryReader(fs);
             Byte[] buffer = br.ReadBytes(2);
+            if (buffer.Length < 2) return null;
             //br.Close();
             Encoding ed = Encoding.ASCII;
             if (buffer[0] >= 0xEF)
             {
                 if (buffer[0] == 0xEF && buffer[1] == 0xBB)
                 {
-                    ed=Encoding.UTF8;
+                    ed = Encoding.UTF8;
                 }
                 else if (buffer[0] == 0xFE && buffer[1] == 0xFF)
                 {
-                    ed=Encoding.BigEndianUnicode;
+                    ed = Encoding.BigEndianUnicode;
                 }
                 else if (buffer[0] == 0xFF && buffer[1] == 0xFE)
                 {
-                    ed=Encoding.Unicode;
+                    ed = Encoding.Unicode;
                 }
                 else
                 {
-                    ed=Encoding.Default;
+                    ed = Encoding.Default;
                 }
             }
             else
             {
-                ed=Encoding.Default;
+                ed = Encoding.Default;
             }
-            return ed;            
+            return ed;
 
         }
         /// <summary>
@@ -180,102 +189,114 @@ namespace TTextR
             FileInfo[] fis = oo as FileInfo[];
             if (fis != null)
             {
-                FileStream fs;
+                FileStream fs = null;
+                FileInfo fi = null;
                 int count;
-                string text=""; 
-                byte[] bts=new byte[1024000];
-                foreach (FileInfo fi in fis)
+                string text = "";
+                byte[] bts = new byte[1024000];
+                foreach (FileInfo fix in fis)
                 {
-                    if(bReplace)
-                        fs = fi.Open(FileMode.Open,FileAccess.ReadWrite,FileShare.ReadWrite);
-                    else
-                        fs= fi.OpenRead();
-                    var ed=GetFileEncodeType(fs);
-                    count=fs.Read(bts, 0, 1024000);
-
-                    text = ed.GetString(bts, 0, count);
-
-                    if (strContent != "")
+                    try
                     {
-                        if (bReContent)
-                        {
-                            Regex rg = new Regex(strContent, RegexOptions.Multiline);
-                            var mt = rg.Match(text);
-                            if (mt.Success)
-                            {
-                                if (ftext != "")
-                                {
-                                    if (OperateContent(text, fs, ftext,ed))
-                                    {
-                                        fileCount++;
-                                        this.Invoke(aMsg, fi.FullName);
-                                    }
-                                }
-                                else
-                                {
-                                    fileCount++;
-                                    this.Invoke(aMsg, fi.FullName);
-                                }
-                            }
-                        }
+                        fi = fix;
+                        if (bReplace)
+                            fs = fi.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
                         else
+                            fs = fi.OpenRead();
+                        var ed = GetFileEncodeType(fs);
+                        if (ed == null) continue;
+                        count = fs.Read(bts, 0, 1024000);
+
+                        text = ed.GetString(bts, 0, count);
+
+                        if (strContent != "")
                         {
-                            if (text.IndexOf(strContent) > 0)
+                            if (bReContent)
                             {
-                                if (ftext != "")
+                                Regex rg = new Regex(strContent, RegexOptions.Multiline);
+                                var mt = rg.Match(text);
+                                if (mt.Success)
                                 {
-                                    if (OperateContent(text, fs, ftext,ed))
+                                    if (ftext != "")
                                     {
-                                        fileCount++;
+                                        if (OperateContent(text, fs, ftext, ed))
+                                        {
+                                            lock (oolock)
+                                            {
+                                                fileCount++;
+                                            }
+                                            this.Invoke(aMsg, fi.FullName);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        lock (oolock)
+                                        {
+                                            fileCount++;
+                                        }
                                         this.Invoke(aMsg, fi.FullName);
                                     }
                                 }
-                                else
+                            }
+                            else
+                            {
+                                if (text.IndexOf(strContent) > 0)
                                 {
-                                    fileCount++;
-                                    this.Invoke(aMsg, fi.FullName);
-                                }
+                                    if (ftext != "")
+                                    {
+                                        if (OperateContent(text, fs, ftext, ed))
+                                        {
+                                            lock (oolock)
+                                            {
+                                                fileCount++;
+                                            }
+                                            this.Invoke(aMsg, fi.FullName);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        lock (oolock)
+                                        {
+                                            fileCount++;
+                                        }
+                                        this.Invoke(aMsg, fi.FullName);
+                                    }
 
+                                }
                             }
                         }
-                    }
-                    else //搜索包含内容为空
-                    {
-                        if (ftext != "")
+                        else //搜索包含内容为空
                         {
-                            if (OperateContent(text, fs, ftext,ed))
+                            if (ftext != "")
                             {
-                                fileCount++;
+                                if (OperateContent(text, fs, ftext, ed))
+                                {
+                                    lock (oolock)
+                                    {
+                                        fileCount++;
+                                    }
+                                    this.Invoke(aMsg, fi.FullName);
+                                }
+                            }
+                            else
+                            {
+                                lock (oolock)
+                                {
+                                    fileCount++;
+                                }
                                 this.Invoke(aMsg, fi.FullName);
                             }
                         }
-                        else
-                        {
-                            fileCount++;
-                            this.Invoke(aMsg, fi.FullName);
-                        }
                     }
-
-                    //if (bReSearch)
-                    //{
-                    //    Regex rg = new Regex(ftext, RegexOptions.Multiline);
-                    //    var mt = rg.Match(text);
-                    //    if (mt.Success)
-                    //    {
-                    //        fileCount++;
-                    //        //aMsg(fi.FullName);
-                    //        this.Invoke(aMsg, fi.FullName); 
-                    //    }
-                    //}
-                    //else
-                    //{
-                    //    if (text.IndexOf(ftext) > 0)
-                    //    {
-                    //        fileCount++;
-                    //        this.Invoke(aMsg, fi.FullName);                            
-                    //    }
-                    //}
-                    fs.Close();
+                    catch (Exception ex)
+                    {
+                        Tom.Common.GYF.WriteLogEx(ex, fix.FullName, "ccc");                        
+                        break;
+                    }
+                    finally
+                    {
+                        if (fs != null) fs.Close();
+                    }
                 }
 
             }
@@ -289,23 +310,23 @@ namespace TTextR
         /// <param name="fftext"></param>
         /// <param name="ed"></param>
         /// <returns></returns>
-        private bool OperateContent(string text,FileStream fs,string fftext,Encoding ed)
+        private bool OperateContent(string text, FileStream fs, string fftext, Encoding ed)
         {
             bool find = false;
             byte[] byteTemp;
             if (bReSearch)
             {
                 Regex rg = new Regex(fftext, RegexOptions.Multiline);
-                var mt = rg.Match(text);                
+                var mt = rg.Match(text);
                 if (mt.Success)
                 {
-                    find=true;
+                    find = true;
                     if (bReplace)
                     {
-                        text=Regex.Replace(text, fftext, rtext, RegexOptions.Multiline);
-                        byteTemp=ed.GetBytes(text);
+                        text = Regex.Replace(text, fftext, rtext, RegexOptions.Multiline);
+                        byteTemp = ed.GetBytes(text);
                         fs.SetLength(0);
-                        fs.Write(byteTemp,0,byteTemp.Length);
+                        fs.Write(byteTemp, 0, byteTemp.Length);
                         //fs.Flush();
                     }
                 }
@@ -317,7 +338,7 @@ namespace TTextR
                     find = true;
                     if (bReplace)
                     {
-                        text=text.Replace(fftext, rtext);
+                        text = text.Replace(fftext, rtext);
                         byteTemp = ed.GetBytes(text);
                         fs.SetLength(0);
                         fs.Write(byteTemp, 0, byteTemp.Length);
@@ -341,7 +362,7 @@ namespace TTextR
         private void btAbout_Click(object sender, EventArgs e)
         {
             if (fm == null) fm = new Form2();
-             
+
             fm.ShowDialog(this);
         }
 
@@ -360,7 +381,7 @@ namespace TTextR
             }
         }
 
-      
-       
+
+
     }
 }
