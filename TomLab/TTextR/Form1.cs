@@ -205,8 +205,8 @@ namespace TTextR
                             fs = fi.OpenRead();
                         var ed = GetFileEncodeType(fs);
                         if (ed == null) continue;
+                        fs.Seek(0, SeekOrigin.Begin);                        
                         count = fs.Read(bts, 0, 1024000);
-
                         text = ed.GetString(bts, 0, count);
 
                         if (strContent != "")
